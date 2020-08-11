@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AST抽象语法树</title>
+</head>
+
+<body>
+</body>
+<script>
+
+
+  function AstHtml(str) {
+    str = `<root>${str}</root>`;
+    this.size = []
+    this.element = [];
+    let data = ""
+    str.split("").forEach(value => {
+      if (/[A-z0-9]/.test(value)) data += value;
+      if (/[^A-z0-9]/.test(value) && data.length > 0) {
+        this.push("keyword", data); data = "";
+      }
+      // let zh = /[\u4E00-\u9FA5\u9FA6-\u9FEF\u31C0-\u31E3\u2F00-\u2FD5]/
+      if (/[\n\f\r\t\v ]/.test(value)) return this.push("lineBreak", value)
+      if (/[<>/="'!-]/.test(value)) {
+        return this.push("identifier", value);
+      }
+      if (/[^A-z0-9]/.test(value)) this.push("symbol", value);
+    });
+    this.nodalization()
+    this.parentChildNode();
+  };
+  AstHtml.prototype.push = function (type, value) {
+    this.size.push({
+      type: type,
+      value: value,
+    });
+  }
+  AstHtml.prototype.nodalization = function () {
+    let data = null
+    let elementText = ""
+    this.size.forEach(({ type, value }, index) => {
+      if (data) {
+        data.push({
+          type: type,
+          value: value,
+        })
+      }
+      if (elementText) elementText += value;
+      if (this.size.length == index + 1) {
+        if (elementText) {
+          this.element.push({
+            type: "text",
+            value: elementText.slice(1)
+          })
+          elementText = ""
+        }
+      }
+      if (type == "identifier") {
+        if (value == "<") {
+          data = [];
+          if (elementText) {
+            if (elementText.slice(1, -1)) {
+              this.element.push({
+                type: "text",
+                value: elementText.slice(1, -1)
+              })
+            }
+            elementText = ""
+          }
+        }
+        if (value == ">") {
+          if (data) {
+            data.pop();
+            data = this.elementValue(data);
+            this.element.push(data)
+            data = null;
+          }
+          elementText += value;
+        }
+      }
+    })
+  }
+  AstHtml.prototype.elementValue = function (arr) {
+    let data = ""
+    let name = null;
+    let end = false;
+    while ({ type, value } = arr.shift()) {
+      if (type == "keyword") data += value;
+      if (type == "identifier") {
+        if (value == "!" || value == "-") data += value;
+        if (value == "/") end = "end";
+        if (value == "/" && arr.length == 0) end = "sinceEnd";
+      }
+      if (type == "lineBreak" || arr.length == 0) {
+        if (!name) name = data;
+        data = "";
+        break;
+      }
+    }
+
+    // console.log(arr);
+    let dataValue = { type: "", value: null };
+    let values = [];
+    let dataNum = 0;
+    arr.forEach(({ type, value }, index) => {
+      // console.log(type, value, index);
+      if (type == "keyword") {
+        if (dataValue.value) {
+          dataValue.value += value
+        } else dataValue.type += value
+        // console.log(value);
+      }
+      if (type == "lineBreak" && dataValue.value) {
+        dataValue.value += value
+      }
+      if (type == "symbol" && dataValue.value) {
+        dataValue.value += value
+      }
+      if (type == "identifier") {
+        if (value == "-") dataValue.type += value;
+        if (value == "=") dataValue.value = true;
+        if (/[\"\']/.test(value) && dataValue.value) {
+          // console.log("此时");
+          if (dataValue.value === true) {
+            dataValue.value = "" + value
+          } else {
+            dataValue.value = dataValue.value.slice(1);
+            values.push(dataValue);
+            // console.log(dataValue);
+            dataValue = { type: "", value: null }
+            // console.log("第二次");
+          }
+
+        }
+      }
+      if (dataValue.value) return;
+      if (type == "lineBreak" || arr.length == (index + 1)) {
+        if (dataValue.type.length == 0) return;
+        dataValue.value = dataValue.type;
+        values.push(dataValue);
+        // console.log(dataValue);
+        dataValue = { type: "", value: null }
+      }
+    })
+    return {
+      type: "element",
+      name: name,
+      end, values,
+    }
+  }
+  AstHtml.prototype.sinceEnd = function (node) {
+    if (node.type != "element") return;
+    if (/^!DOCTYPE$/i.test(node.name)) node.end = "sinceEnd";
+    if (/^br$/i.test(node.name)) node.end = "sinceEnd";
+    if (/^input$/i.test(node.name)) node.end = "sinceEnd";
+    if (/^img$/i.test(node.name)) node.end = "sinceEnd";
+    if (/^meta$/i.test(node.name)) node.end = "sinceEnd";
+    //一些自结束标签可以不写/ 所以加上这个强制判断为自结束
+  }
+  AstHtml.prototype.parentChildNode = function () {
+    this.element.forEach(this.sinceEnd)
+    this.AST = this.childNode();
+  }
+  AstHtml.prototype.childNode = function (element = this.element, callback = () => { }) {
+    let data = null;
+    let elementNode = {
+      type: "element",
+      name: null,
+      child: []
+    }
+    // console.log(element);
+    for (let index = 0; index < element.length; index++) {
+      let node = element[index];
+      if (node.type == "text") elementNode.child.push(node);
+      if (node.type == "element" && node.end == "sinceEnd") elementNode.child.push(node);
+      if (node.type == "element") {
+        if (!node.end && elementNode.name) {
+          let child = this.childNode(element.slice(index), i => {
+            index += i
+            // console.log(i);
+          });
+          elementNode.child.push(child)
+        }
+        if (!node.end && !elementNode.name) {
+          elementNode.name = node.name;
+          elementNode.values = node.values;
+        }
+        if (node.end == "end" && elementNode.name && elementNode.name == node.name) {
+          callback(index)
+          break;
+        }
+
+      }
+    }
+    return elementNode
+  }
+  let str = `<!DOCTYPE html>
+  <div click="a();">
+    <h1 class="h1s">你我他</h1>
+    <span class="dick">you lick my dick</span>
+    <br>
+    <div>
+      <input>你我他
+    </div>
+    <input>
+  </div>
+    `;
+  let ast = new AstHtml(str)
+  console.log(ast);
+</script>
+
+</html>
