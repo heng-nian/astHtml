@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ast</title>
+</head>
+
+<body>
+
+</body>
+<script>
+  function AstHtml(str) {
+    //硬核解决注释解析 但是这个是偷懒
+    str = str.replace(/<!--/g, "<notes>")
+    str = str.replace(/-->/g, "</notes>")
+
+    str = `<root>${str}</root>`
+    this.layer = [];
+    this.size = this.branchByte(str);
+    this.element = this.nodaLization(this.size)
+    this.node = this.nodeParams(this.element);
+    this.AST = this.childNode(this.node).root;
+    this.layer.reverse();
+  }
+
+  AstHtml.prototype.branchByte = function (size) {
+    let byte = [], stack = '';
+    function push(type, param) { byte.push({ type, param }) };
+    size.split("").forEach((letter, index) => {
+      /*--------------------单词拼接部分-------------------------*/
+      if (/[0-9a-z-!]/i.test(letter)) {
+        if (/[0-9-]/.test(letter) && stack.length == 0) {
+        } else {
+          stack += letter;
+          if (size.length == index + 1) {
+            push("keyword", stack); stack = '';
+          }
+          return;
+        }
+      } else if (stack.length != 0) {
+        push("keyword", stack); stack = '';
+      }
+      /*---------------------------------------------*/
+      if (/[\n\r ]/.test(letter)) return push("lineBreak", letter);
+      if (/[<>/="']/.test(letter)) return push("identifier", letter);
+      //不识别的就当成唯一
+      push("symbol", letter);
+    });
+    return byte;
+  }
+  AstHtml.prototype.nodaLization = function (sizeArr) {
+    let byte = [];
+    let text = { type: "text", param: "" };
+    let node = [];
+    sizeArr.forEach(letter => {
+      if (byte.length > 0) byte.push(letter);
+      if (letter.type == "identifier") {
+        if (letter.param == "<") {
+          if (byte.length > 0) {
+            text.param += letter.param
+          }
+          if (text.param.length > 0) {
+            node.push(text); text = { type: "text", param: "" };
+          }
+          byte = []; byte.push(letter);
+        }
+        if (letter.param == ">") {
+          if (byte.length == 0) {
+            text.param += letter.param; node.push(text);
+            return text = { type: "text", param: "" };
+          }
+          node.push(byte); return byte = [];
+        }
+      }
+      if (byte.length == 0) {
+        text.param += letter.param
+      }
+    })
+    return node;
+  };//将拆分后的通过<>分为一组一组数据
+  AstHtml.prototype.nodeParams = function (element) {
+    let nodeElement = [];
+    element.forEach(text => {
+      if (!text.length) return nodeElement.push(text);
+      /*-------------标签临时整字符串----------------*/
+      let source = "";
+      text.forEach(s => source += s.param);
+      /*-----------------------------*/
+      let byte = { type: "element", name: null, params: {}, end: "start", source: source };
+
+
+      function pushText(text) {
+        nodeElement.push({ type: "text", param: text })
+      }
+      /*-------------简单检查标签----------------*/
+      text = text.slice(1, -1);
+      if (text.length < 1) return pushText(source);//忽略空元素
+      if (text[0].param == "/") { byte.end = "end"; text.shift() }
+      if (text.length < 1) return pushText(source);//忽略空元素
+      if (text[text.length - 1].param == "/") { byte.end = "sinceEnd"; text.pop(); }
+      if (text.length < 1) return pushText(source);//忽略空元素
+      if (text[0].type == "keyword") {
+        byte.name = text[0].param; text.shift();
+      } else console.log("%cerror[keyword]:%s", "color:red;", source);
+      if (text.length == 0) {
+        nodeElement.push(byte);
+        this.sinceEnd(byte);
+        return byte = { type: "element", name: null, params: {}, end: "start", source: source };
+      }
+      /*-----------------------------*/
+      let attribute = {}
+      byte.params = attribute
+      let names = null;
+      let byteData = "";
+      let keyword = true;
+      let sign = null;
+      let paraphrase = false;
+      text.forEach(node => {
+        if (byte.end == "end") {
+          nodeElement.push(byte);
+          console.log("%cerror[attribute]:%s", "color:red;", source);
+          return byte = { type: "element", name: null, param: {}, end: "start", source: source };
+        }
+        /*-----------------------------*/
+        if (node.type == "keyword" && keyword) {
+          names = node.param;
+          attribute[names] = names;
+        }
+        if (node.param == "=") keyword = false;
+        if (byteData.length > 0) byteData += node.param;
+        if (paraphrase) { paraphrase = false; return byteData += node.param; }
+        if (node.param == "\\") paraphrase = true;
+        if (/['"]/.test(node.param) && sign == null) {
+          sign = node.param;
+        }
+        if (node.param == sign && !keyword) {
+          if (byteData.length > 0) {
+            attribute[names] = byteData.slice(1, -1);
+            keyword = true;
+            sign = null;
+            return byteData = "";
+          }
+          byteData += node.param;
+        }
+      })
+      this.sinceEnd(byte);
+      nodeElement.push(byte)
+      // console.log(byte);
+    })
+    return nodeElement;
+  };
+  AstHtml.prototype.childNode = function (node, start = 0, end = node.length) {
+    let root = {
+      type: "element",
+      name: null,
+      child: []
+    };
+    let i = start
+    let e = null
+    for (; i < end; i++) {
+      let element = node[i]
+      // console.log(element);
+      if (element.type == "text") root.child.push(element);
+      if (element.type == "element" && element.end == "sinceEnd") root.child.push(element);
+      if (element.type == "element") {
+        if (root.name && element.end == "start") {
+          let child = this.childNode(node, i);
+          if (!child) {
+            return this.childNode(node, start);
+          }
+          i = child.i; root.child.push(child.root);
+        }
+        if (!root.name && element.end == "start") {
+          root.name = element.name;
+          root.params = element.params
+          root.source = element.source
+          e = element;
+        }
+        if (element.end == "end" && root.name == element.name) {
+          this.layer.push(root);
+          root.child.forEach(nodes => {
+            if (nodes.type == "text") {
+              root.source += nodes.param
+            }
+            if (nodes.type == "element") {
+              root.source += nodes.source
+            }
+          })
+          root.source += element.source;
+          break;
+        }
+        if (end == i + 1) {
+          console.log("%cerror[non-existent]:", "color:red;", e);
+          e.end = "sinceEnd";
+          return null
+        }
+      }
+    }
+    return { root, i };
+  }
+  AstHtml.prototype.sinceEnd = function (node) {
+    if (node.type != "element") return;
+    if (/^!DOCTYPE$/i.test(node.name)) node.end = "sinceEnd";
+    if (/^br$/i.test(node.name)) node.end = "sinceEnd";
+    if (/^input$/i.test(node.name)) node.end = "sinceEnd";
+    if (/^img$/i.test(node.name)) node.end = "sinceEnd";
+    if (/^meta$/i.test(node.name)) node.end = "sinceEnd";
+    if (/^link$/i.test(node.name)) node.end = "sinceEnd";
+    //一些自结束标签可以不写/ 所以加上这个强制判断为自结束
+  }
+  //\\">
+  str = `<!DOCTYPE html>
+  <div click="a();">
+    <h1 class="h1s">你我他</h1>
+    <span class="dick">you lick my dick</span>
+    <br>
+    <div>
+      <input>你我他<> </>
+    </div>
+    <input>
+  </div>
+    `
+  let ast = new AstHtml(str);
+  console.log(ast);
+  console.log(ast.AST.source);
+</script>
+
+</html>
