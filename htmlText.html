@@ -8,7 +8,10 @@
 </head>
 
 <body>
-
+  <div>
+    <span>aaa</span>
+    <span>bbb</span>
+  </div>
 </body>
 <script>
   function AstHtml(str) {
@@ -155,7 +158,10 @@
     let root = {
       type: "element",
       name: null,
-      child: []
+      child: [],
+      innerText: "",
+      innerHTML: "",
+      sourceText: "",
     };
     let i = start
     let e = null
@@ -176,16 +182,20 @@
           root.name = element.name;
           root.params = element.params
           root.source = element.source
+          root.sourceText = element.source
           e = element;
         }
         if (element.end == "end" && root.name == element.name) {
           this.layer.push(root);
           root.child.forEach(nodes => {
             if (nodes.type == "text") {
-              root.source += nodes.param
+              root.source += nodes.param;
+              root.innerHTML += nodes.param;
+              root.innerText += nodes.param;
             }
             if (nodes.type == "element") {
               root.source += nodes.source
+              root.innerHTML += nodes.source
             }
           })
           root.source += element.source;
@@ -208,7 +218,7 @@
     if (/^img$/i.test(node.name)) node.end = "sinceEnd";
     if (/^meta$/i.test(node.name)) node.end = "sinceEnd";
     if (/^link$/i.test(node.name)) node.end = "sinceEnd";
-    //一些自结束标签可以不写/ 所以加上这个强制判断为自结束
+    //自结束标签可以不写/ 所以加上这个强制判断为自结束
   }
   //\\">
   str = `<!DOCTYPE html>
@@ -219,12 +229,13 @@
     <div>
       <input>你我他<> </>
     </div>
-    <input>
+    <input a>
   </div>
     `
   let ast = new AstHtml(str);
   console.log(ast);
   console.log(ast.AST.source);
+  console.log(ast.AST.innerHTML);
 </script>
 
 </html>
