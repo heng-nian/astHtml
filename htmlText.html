@@ -196,6 +196,7 @@
             if (nodes.type == "element") {
               root.source += nodes.source
               root.innerHTML += nodes.source
+              if (nodes.innerText) root.innerText += nodes.innerText;
             }
           })
           root.source += element.source;
@@ -230,6 +231,7 @@
       <input>你我他<> </>
     </div>
     <input a>
+    <div-a>aaaa</div-a>
   </div>
     `
   let ast = new AstHtml(str);
